@@ -4,16 +4,18 @@
 #include <iostream>
 #include <windows.h>
 
+#define COMM_NAME_LEN 256
+
 int main()
 {
 	DWORD num_comm;
-	int num_baud;
+	DWORD num_baud;
 	int argc;
 	LPWSTR command_line;
 	LPWSTR* argv;
 	LPWSTR dat_fname;
 
-	wchar_t comm_name[256];
+	wchar_t comm_name[COMM_NAME_LEN];
 	HANDLE hComm;
 	DWORD comerr;
 	COMSTAT comstat;
@@ -70,7 +72,7 @@ int main()
 		exit(1);
 	}
 
-	swprintf_s(comm_name, sizeof(comm_name), L"\\\\.\\COM%0d", num_comm);
+	swprintf_s(comm_name, COMM_NAME_LEN, L"\\\\.\\COM%0d", num_comm);
 	std::wcout << L"COM name : " << comm_name << std::endl;
 	hComm = CreateFile(comm_name, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
 	//hComm = OpenCommPort(num_comm, GENERIC_READ | GENERIC_WRITE, FILE_FLAG_OVERLAPPED);
@@ -109,6 +111,8 @@ int main()
 
 	Status = SetCommState(hComm, &dcbSerialParams);
 	std::cout << "SetCommState status: " << Status << std::endl;
+	Status = GetCommState(hComm, &dcbSerialParams);
+	std::cout << "BaudRate become " << dcbSerialParams.BaudRate << std::endl;
 
 	COMMTIMEOUTS timeouts = { 0 };
 	timeouts.ReadIntervalTimeout = 0; // This is important for OVERLAPPED Read
@@ -129,7 +133,7 @@ int main()
 	ols_ev.Offset = 0;
 	ols_ev.OffsetHigh = 0;
 	ols_ev.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-	DWORD dwEventMask;
+	DWORD dwEventMask = 0;
 	rStatus = WaitCommEvent(hComm, &dwEventMask, &ols_ev);
 	std::cout << "WaitCommEvent: " << rStatus << ", dwEventMask: " << dwEventMask << std::endl;
 	lasterr = GetLastError();
@@ -153,7 +157,6 @@ int main()
 		std::cerr << "Error in writing comm port. status: " << wStatus << ", lasterr: " << lasterr << std::endl;
 	}
 	std::cout << "WriteFile" << std::endl;
-	//Sleep(1000);
 
 	while (1) {
 		if (WaitForSingleObject(ols_ev.hEvent, INFINITE) != WAIT_OBJECT_0) {
@@ -198,7 +201,9 @@ int main()
 	std::cout << "Read status = " << rStatus << std::endl;
 	std::cout << "Write status = " << wStatus << std::endl;
 	double trans_time = ((double)(end_ctr.QuadPart - begin_ctr.QuadPart)) / perf_freq.QuadPart;
-	std::cout << (8 + 1 + 1) * rlen / trans_time << "baud" << std::endl;
+	double uart_char_bits = 10;
+	double rlen_int = rlen;
+	std::cout << (rlen_int*uart_char_bits / trans_time) << "baud" << std::endl;
 
 	if (nbuf != rlen) {
 		std::cout << "nbuf != rlen, rlen = " << rlen << std::endl;
