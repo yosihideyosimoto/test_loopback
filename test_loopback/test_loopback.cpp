@@ -7,7 +7,7 @@
 int main()
 {
 	DWORD num_comm;
-	DWORD num_baud;
+	int num_baud;
 	int argc;
 	LPWSTR command_line;
 	LPWSTR* argv;
@@ -29,6 +29,10 @@ int main()
 
 	HANDLE wait_event_list[2];
 
+	LARGE_INTEGER perf_freq;
+	LARGE_INTEGER begin_ctr;
+	LARGE_INTEGER end_ctr;
+
 	int Status;
 
 	command_line = GetCommandLine();
@@ -39,6 +43,7 @@ int main()
 	}
 	num_comm = _wtoi(argv[1]);
 	num_baud = _wtoi(argv[2]);
+	std::cout << "COM: " << num_comm << ", Baud: " << num_baud << std::endl;
 	dat_fname = argv[3];
 
 	HANDLE hFile;
@@ -76,24 +81,32 @@ int main()
 		std::cout << "Success opening serial port" << std::endl;
 	};
 	SetupComm(hComm, 1024, 1024);
-	PurgeComm(hComm, PURGE_RXCLEAR | PURGE_TXCLEAR);
+	PurgeComm(hComm, PURGE_TXABORT | PURGE_RXABORT | PURGE_RXCLEAR | PURGE_TXCLEAR);
 	DCB dcbSerialParams = { 0 };
 	dcbSerialParams.DCBlength = sizeof(dcbSerialParams);
 
 	Status = GetCommState(hComm, &dcbSerialParams);
 	dcbSerialParams.fBinary = TRUE;
+	dcbSerialParams.EofChar = 0;
+	dcbSerialParams.fNull = FALSE;
+	dcbSerialParams.fParity = FALSE;
+	dcbSerialParams.fErrorChar = FALSE;
+	dcbSerialParams.fTXContinueOnXoff = TRUE;
 	dcbSerialParams.fOutX = FALSE;
 	dcbSerialParams.fInX = FALSE;
-	dcbSerialParams.fOutxCtsFlow = FALSE;
-	dcbSerialParams.fRtsControl = FALSE;
-	dcbSerialParams.fDsrSensitivity = FALSE;
-	dcbSerialParams.fDtrControl = FALSE;
+	dcbSerialParams.XonChar = 0x11;
+	dcbSerialParams.XoffChar = 0x13;
 	dcbSerialParams.fOutxDsrFlow = FALSE;
+	dcbSerialParams.fRtsControl = RTS_CONTROL_ENABLE;
+	dcbSerialParams.fOutxCtsFlow = FALSE;
+	dcbSerialParams.fDtrControl = DTR_CONTROL_ENABLE;
+	dcbSerialParams.fDsrSensitivity = FALSE;
+	dcbSerialParams.fAbortOnError = TRUE;
 	dcbSerialParams.BaudRate = num_baud;
 	dcbSerialParams.ByteSize = 8;
 	dcbSerialParams.StopBits = ONESTOPBIT;
 	dcbSerialParams.Parity = NOPARITY;
-	dcbSerialParams.fParity = FALSE;
+
 	Status = SetCommState(hComm, &dcbSerialParams);
 	std::cout << "SetCommState status: " << Status << std::endl;
 
@@ -125,12 +138,15 @@ int main()
 		exit(1);
 	}
 
+	QueryPerformanceFrequency(&perf_freq);
+
 	OVERLAPPED ols_w;
 	ZeroMemory(&ols_w, sizeof(ols_w));
 	ols_w.Offset = 0;
 	ols_w.OffsetHigh = 0;
 	ols_w.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 	wait_event_list[0] = ols_w.hEvent;
+	QueryPerformanceCounter(&begin_ctr);
 	wStatus = WriteFile(hComm, sbuf, nbuf, &slen, &ols_w);
 	lasterr = GetLastError();
 	if (!wStatus && lasterr != ERROR_IO_PENDING) {
@@ -177,9 +193,12 @@ int main()
 		exit(1);
 	};
 	rStatus = GetOverlappedResult(hComm, &ols_r, &rlen, TRUE);
-	std::cout << "Read status = " << rStatus << std::endl;
 	wStatus = GetOverlappedResult(hComm, &ols_w, &slen, TRUE);
+	QueryPerformanceCounter(&end_ctr);
+	std::cout << "Read status = " << rStatus << std::endl;
 	std::cout << "Write status = " << wStatus << std::endl;
+	double trans_time = ((double)(end_ctr.QuadPart - begin_ctr.QuadPart)) / perf_freq.QuadPart;
+	std::cout << (8 + 1 + 1) * rlen / trans_time << "baud" << std::endl;
 
 	if (nbuf != rlen) {
 		std::cout << "nbuf != rlen, rlen = " << rlen << std::endl;
